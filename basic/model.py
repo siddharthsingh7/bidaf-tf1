@@ -225,16 +225,16 @@ class Model(object):
                     s_bout = s_b[:,:,-1,:]
                     print("s_fout",s_fout)
 
-                    #TODO get last layer
                     batch_lens = (tf.reshape(x_len,[N*M]))
                     s_f = tf.reshape(s_f,[N*M,JX,d])
+                    s_b = tf.reshape(s_b,[N*M,JX,d])
                     print("s_f reshape",s_f)
                     print("batch_lens",batch_lens)
                     s_fout = extract_axis_1(s_f, batch_lens)
+                    s_bout = extract_axis_1(s_b, batch_lens)
                     s_fout = tf.reshape(s_fout,[N,M,d])
-                    s_bout = s_fout
+                    s_bout = tf.reshape(s_bout,[N,M,d])
                     print("s_fout",s_fout)
-                    input()
 
                     s = tf.concat(axis=2, values=[s_fout, s_bout]) # [N,M,2d]
 

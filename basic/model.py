@@ -22,6 +22,19 @@ def get_multi_gpu_models(config):
             models.append(model)
     return models
 
+def extract_axis_1(data, ind):
+    """
+    Get specified elements along the first axis of tensor.
+    :param data: Tensorflow tensor that will be subsetted.
+    :param ind: Indices to take (one for each element along axis 0 of data).
+    :return: Subsetted tensor.
+    """
+
+    batch_range = tf.range(tf.shape(data)[0] )
+    indices = tf.stack([batch_range, ind-1], axis=1)
+    res = tf.gather_nd(data, indices)
+
+    return res
 
 class Model(object):
     def __init__(self, config, scope, rep=True):
@@ -189,6 +202,7 @@ class Model(object):
                 second_cell_bw = d_cell3_bw
 
             config.ruminating_layer = True
+
             if config.ruminating_layer:
                 '''
                 RUMINATING LAYER
@@ -206,29 +220,35 @@ class Model(object):
 
                     print("s_f",s_f)
 
+
                     s_fout = s_f[:,:,-1,:]  # get the last layer
                     s_bout = s_b[:,:,-1,:]
-                    '''
-                    s_fout = tf.reshape(s_f,[N,M*JX,d])
-                    s_bout = tf.reshape(s_b,[N,M*JX,d])
-
-                    ind = x_len - 1
-
-                    s_batch_range = tf.range(tf.shape(s_f)[0])
-                    print (s_batch_range)
-                    print (ind)
-                    indices = tf.stack([s_batch_range,ind], axis=1)
-
-                    s_fout = tf.reshape(tf.gather_nd(s_fout, indices),[N,M,JX,d])
-                    s_bout = tf.reshape(tf.gather_nd(s_bout, indices),[N,M,JX,d])
-                    '''
                     print("s_fout",s_fout)
+
+                    #TODO get last layer
+                    batch_lens = (tf.reshape(x_len,[N*M]))
+                    s_f = tf.reshape(s_f,[N*M,JX,d])
+                    print("s_f reshape",s_f)
+                    print("batch_lens",batch_lens)
+                    s_fout = extract_axis_1(s_f, batch_lens)
+                    s_fout = tf.reshape(s_fout,[N,M,d])
+                    s_bout = s_fout
+                    print("s_fout",s_fout)
+                    input()
+
                     s = tf.concat(axis=2, values=[s_fout, s_bout]) # [N,M,2d]
+
                     print("summarization layer",s)
 
-                    print("query ruminate layer") #TODO BiLSTM
-                    S_Q = tf.tile(tf.expand_dims(s,2),[1,1,JQ,1]) # [N,M,JX,JQ,2d]
+                    print("query ruminate layer")
+                    S_Q = tf.tile(tf.expand_dims(s,2),[1,1,JQ,1]) # [N,M,JQ,2d]
                     print("s tiled Q times",S_Q)
+
+                    S_cell_fw = BasicLSTMCell(d,state_is_tuple=True)
+                    S_cell_bw = BasicLSTMCell(d,state_is_tuple=True)
+                    (fw_hq, bw_hq), _ = bidirectional_dynamic_rnn(S_cell_fw, S_cell_bw, S_Q, q_len, dtype='float', scope="S_Q")
+
+                    S_Q = tf.concat(axis=3, values=[fw_hq, bw_hq])
 
                     xavier_init = tf.contrib.layers.xavier_initializer()
                     zero_init = tf.constant_initializer(0)
@@ -264,8 +284,9 @@ class Model(object):
                     S_C = tf.tile(tf.expand_dims(s,2),[1,1,JX,1]) # [N,M,JX,2d]
                     print("s tiled C times",S_C)
 
-                    S_cell = BasicLSTMCell(d,state_is_tuple=True)
-                    (fw_h, bw_h), _ = bidirectional_dynamic_rnn(S_cell, S_cell, S_C, x_len, dtype='float', scope="S_C")
+                    C_cell_fw = BasicLSTMCell(d,state_is_tuple=True)
+                    C_cell_bw = BasicLSTMCell(d,state_is_tuple=True)
+                    (fw_h, bw_h), _ = bidirectional_dynamic_rnn(C_cell_fw, S_cell_bw, S_C, x_len, dtype='float', scope="S_C")
                     S_C = tf.concat(axis=3, values=[fw_h, bw_h])
                     print("biLSTM output",S_C) #[N,M,JX,2d]
 
@@ -459,11 +480,12 @@ class Model(object):
             X = self.tensor_dict['xx']
 
             s = tf.cast(tf.argmax(self.logits,1),'int32')
-            e = s
+            e = tf.cast(tf.argmax(self.logits2,1),'int32')
             print("start index",s)
 
             print("Q",Q)  #[N,JQ,2d]
-            qbow = tf.reduce_sum(Q,1,keep_dims=False) #[N,2d] TODO - normalize
+            #qbow = tf.divide(tf.reduce_sum(Q,1,keep_dims=False), 1)) #TODO once you figure out the formula
+            qbow = tf.reduce_sum(Q,1,keep_dims=False) #[N,2d]
             print("qbow",qbow)
 
             indices = tf.cast( tf.reshape(tf.range(N), [N,]) , 'int32')

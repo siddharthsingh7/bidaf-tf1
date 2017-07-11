@@ -430,6 +430,7 @@ class Model(object):
             cos_similarity_a =tf.reduce_sum(tf.multiply(normalize_q,normalize_c_s))
             cos_similarity_b =tf.reduce_sum(tf.multiply(normalize_q,normalize_c_e))
             ce_loss3 = cos_similarity_a + cos_similarity_b
+            tf.summary.scalar('qa_loss',ce_loss3)
             tf.add_to_collection("losses",ce_loss3)
 
         self.loss = tf.add_n(tf.get_collection('losses', scope=self.scope), name='loss')

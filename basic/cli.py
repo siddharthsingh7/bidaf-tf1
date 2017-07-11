@@ -76,11 +76,11 @@ flags.DEFINE_float("decay", 0.9, "Exponential moving average decay for logging v
 # Thresholds for speed and less memory usage
 flags.DEFINE_integer("word_count_th", 10, "word count th [100]")
 flags.DEFINE_integer("char_count_th", 50, "char count th [500]")
-flags.DEFINE_integer("sent_size_th", 64, "sent size th [400]")
+flags.DEFINE_integer("sent_size_th", 400, "sent size th [400]")
 flags.DEFINE_integer("num_sents_th", 8, "num sents th [8]")
 flags.DEFINE_integer("ques_size_th", 30, "ques size th [32]")
 flags.DEFINE_integer("word_size_th", 16, "word size th [16]")
-flags.DEFINE_integer("para_size_th", 100, "para size th [256]")
+flags.DEFINE_integer("para_size_th", 256, "para size th [256]")
 
 # Advanced training options
 flags.DEFINE_bool("lower_word", True, "lower word [True]")

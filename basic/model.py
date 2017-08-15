@@ -8,9 +8,10 @@ from tensorflow.contrib.rnn import BasicLSTMCell
 from basic.read_data import DataSet
 from my.tensorflow import get_initializer
 from my.tensorflow.nn import softsel, get_logits, highway_network, multi_conv1d
-from my.tensorflow.rnn import bidirectional_dynamic_rnn
+from my.tensorflow.rnn import bidirectional_dynamic_rnn,ruminating_layer
 from my.tensorflow.rnn_cell import SwitchableDropoutWrapper, AttentionCell
 
+from ptpython.repl import embed
 
 def get_multi_gpu_models(config):
     models = []
@@ -208,8 +209,6 @@ class Model(object):
                 '''
                 RUMINATING LAYER
                 '''
-                xavier_init = tf.contrib.layers.xavier_initializer()
-                zero_init = tf.constant_initializer(0)
 
                 with tf.variable_scope('rum_layer'):
                     print('-'*5 + "RUMINATING LAYER"+'-'*5)
@@ -231,31 +230,18 @@ class Model(object):
 
                     print("summarization layer",s)
 
-                    print('-'*5 + "CONTEXT RUMINATE LAYER"+'-'*5)
+                    print('-'*5 + "QUESTION RUMINATE LAYER"+'-'*5)
 
                     S_Q = tf.tile(tf.expand_dims(s,2),[1,1,JQ,1]) # [N,M,JQ,2d]
                     S_cell_fw = BasicLSTMCell(d,state_is_tuple=True)
                     S_cell_bw = BasicLSTMCell(d,state_is_tuple=True)
                     (fw_hq, bw_hq), _ = bidirectional_dynamic_rnn(S_cell_fw, S_cell_bw, S_Q, q_len, dtype=tf.float32, scope="S_Q")
-
                     S_Q = tf.concat(axis=3, values=[fw_hq, bw_hq])
-
-                    W1_Qz = tf.get_variable('W1_Qz',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    W2_Qz = tf.get_variable('W2_Qz',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    b_Qz = tf.get_variable('b_Qz',shape=(2*d,),dtype=tf.float32,initializer=zero_init)
-                    W1_Qf = tf.get_variable('W1_Qf',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    W2_Qf = tf.get_variable('W2_Qf',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    b_Qf = tf.get_variable('b_Qf',shape=(2*d,),dtype=tf.float32,initializer=zero_init)
-
                     q_m = tf.reshape(tf.expand_dims(qq,1),[N,M,JQ,2*d])
 
-                    z_part1 = tf.reshape(tf.matmul(tf.reshape(S_Q,[-1,2*d]),W1_Qz) ,[N,M,JQ,2*d],name='z_part1')
-                    z_part2 = tf.reshape(tf.expand_dims(tf.matmul(tf.reshape(q_m,[-1,2*d]), W2_Qz) + b_Qz, 1),[N,M,JQ,2*d])
-                    z = tf.tanh(z_part1 + z_part2 ,name='z')
-                    f_part1 = tf.reshape(tf.matmul(tf.reshape(S_Q,[-1,2*d]),W1_Qf) ,[N,M,JQ,2*d],name='f_part1')
-                    f_part2 = tf.reshape(tf.expand_dims(tf.matmul(tf.reshape(q_m,[-1,2*d]), W2_Qf) + b_Qf, 1,name='f_part2'),[N,M,JQ,2*d])
-                    f = tf.sigmoid(f_part1 + f_part2,name='f')
-                    Q_hat = tf.multiply(f, q_m) + tf.multiply( (1 - f),z)
+                    with tf.variable_scope("question_rum_layer"):
+                        Q_hat = ruminating_layer(S_Q,q_m,N,M,JQ,d)
+
                     print("Q_hat",Q_hat) #[N,M,JQ,2d]
 
                     print('-'*5 + "CONTEXT RUMINATE LAYER"+'-'*5)
@@ -265,27 +251,14 @@ class Model(object):
                     C_cell_bw = BasicLSTMCell(d,state_is_tuple=True)
                     (fw_h, bw_h), _ = bidirectional_dynamic_rnn(C_cell_fw, C_cell_bw, S_C, x_len, dtype=tf.float32, scope="S_C")
                     S_C = tf.concat(axis=3, values=[fw_h, bw_h]) #[N,M,JX,2d]
+                    with tf.variable_scope("context_rum_layer"):
+                        C_hat = ruminating_layer(S_C,xx,N,M,JX,d)
 
-                    W1_Cz = tf.get_variable('W1_Cz',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    W2_Cz = tf.get_variable('W2_Cz',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    b_Cz = tf.get_variable('b_Cz',shape=(2*d,),dtype=tf.float32,initializer=zero_init)
-                    W1_Cf = tf.get_variable('W1_Cf',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    W2_Cf = tf.get_variable('W2_Cf',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
-                    b_Cf = tf.get_variable('b_Cf',shape=(2*d,),dtype=tf.float32,initializer=zero_init)
-
-                    zc_part1 = tf.reshape(tf.matmul(tf.reshape(S_C,[-1,2*d]),W1_Cz) ,[N,M,JX,2*d])
-                    zc_part2 = tf.reshape(tf.expand_dims(tf.matmul(tf.reshape(xx,[-1,2*d]), W2_Cz) + b_Cz, 1),[N,M,JX,2*d])
-                    zc = tf.tanh(zc_part1 + zc_part2)
-                    fc_part1 = tf.reshape(tf.matmul(tf.reshape(S_C,[-1,2*d]),W1_Cf) ,[N,M,JX,2*d])
-                    fc_part2 = tf.reshape(tf.expand_dims(tf.matmul(tf.reshape(xx,[-1,2*d]), W2_Cf) + b_Cf, 1),[N,M,JX,2*d])
-                    fc = tf.sigmoid(fc_part1 + fc_part2)
-                    C_hat = tf.multiply(fc,xx)  + tf.multiply( (1 - fc),zc)
                     print("C_hat",C_hat) #[N,M,JX,2d]
 
                     #Second Hop bi-Attention
 
                     print('-'*5 + "SECOND HOP ATTENTION"+'-'*5)
-
                     sh_aug = tf.tile(tf.expand_dims(C_hat,3),[1,1,1,JQ,1]) #[N,M,JX,2d]
                     su_aug = tf.tile(tf.expand_dims(Q_hat,2),[1,1,JX,1,1]) #[N,M,JQ,2d]
 
@@ -348,8 +321,6 @@ class Model(object):
             yp = tf.reshape(flat_yp, [-1, M, JX])
             yp2 = tf.reshape(flat_yp2, [-1, M, JX])
             wyp = tf.nn.sigmoid(logits2)
-
-
 
             self.logits = flat_logits
             self.logits2 = flat_logits2
@@ -414,21 +385,20 @@ class Model(object):
             X = self.tensor_dict['xx'] #[N,JX,2d]
             s = tf.cast(tf.argmax(self.logits,1),tf.int32)
             e = tf.cast(tf.argmax(self.logits2,1),tf.int32)
-            indices = tf.cast( tf.reshape(tf.range(N), [N,]) , 'int32')
-            start_indices = tf.stack( [indices,s],axis=1,name="qa_loss_start")
-            end_indices = tf.stack( [indices,e],axis=1,name="qa_loss_end")
+            indices = tf.cast( tf.reshape(tf.range(N),[N,]),'int32')
+            start_indices = tf.stack([indices,s],axis=1,name="qa_loss_start")
+            end_indices = tf.stack([indices,e],axis=1,name="qa_loss_end")
             XX = tf.reshape(X,[-1,M*JX,tf.shape(Q)[2]])
 
-            qbow = tf.divide(tf.reduce_sum(Q,1,keep_dims=False),tf.cast(JQ,tf.float32)) #[N,2d]
+            batch_qlen = tf.reshape(tf.reduce_sum(tf.cast(self.q_mask, 'int32'), axis=1), [-1, ])
+
+            qbow = tf.reduce_sum(Q,1,keep_dims=False) #[N,2d]
+            qbow = tf.divide(qbow,tf.reshape(tf.cast(batch_qlen,tf.float32),[-1,1]))#[N,2d]
             C_s = tf.gather_nd(XX,start_indices)
             C_e = tf.gather_nd(XX,end_indices)
-
-            #Cosine similarity
-            normalize_q = tf.nn.l2_normalize(qbow,0)
-            normalize_c_s = tf.nn.l2_normalize(C_s,0)
-            normalize_c_e = tf.nn.l2_normalize(C_e,0)
-            cos_similarity_a =tf.reduce_sum(tf.multiply(normalize_q,normalize_c_s))
-            cos_similarity_b =tf.reduce_sum(tf.multiply(normalize_q,normalize_c_e))
+            #Cosine loss
+            cos_similarity_a = tf.losses.cosine_distance(C_s,qbow,dim=1)
+            cos_similarity_b = tf.losses.cosine_distance(C_e,qbow,dim=1)
             ce_loss3 = cos_similarity_a + cos_similarity_b
             tf.summary.scalar('qa_loss',ce_loss3)
             tf.add_to_collection("losses",ce_loss3)

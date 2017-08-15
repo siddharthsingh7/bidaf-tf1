@@ -79,3 +79,28 @@ def bidirectional_rnn(cell_fw, cell_bw, inputs,
     bw_outputs = reconstruct(flat_bw_outputs, inputs, 2)
     # FIXME : final state is not reshaped!
     return (fw_outputs, bw_outputs), final_state
+
+def ruminating_layer(S,inputs,N,M,L,d):
+    '''
+    ruminate inputs over summary S.
+    N - batch_size, M - sent cont,
+    L- Length of sequence, d - state size
+    '''
+    xavier_init = tf.contrib.layers.xavier_initializer()
+    zero_init = tf.constant_initializer(0)
+    with tf.variable_scope("ruminating_layer"):
+        W1_z = tf.get_variable('W1_z',shape=  (2*d,2*d),dtype=tf.float32,initializer=xavier_init)
+        W2_z = tf.get_variable('W2_z',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
+        b_z = tf.get_variable('b_z',shape=(2*d,),dtype=tf.float32,initializer=zero_init)
+        W1_f = tf.get_variable('W1_f',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
+        W2_f = tf.get_variable('W2_f',shape=(2*d,2*d),dtype=tf.float32,initializer=xavier_init)
+        b_f = tf.get_variable('b_f',shape=(2*d,),dtype=tf.float32,initializer=zero_init)
+
+        z_part1 = tf.reshape(tf.matmul(tf.reshape(S,[-1,2*d]),W1_z) ,[N,M,L,2*d],name='z_part1')
+        z_part2 = tf.reshape(tf.expand_dims(tf.matmul(tf.reshape(inputs,[-1,2*d]), W2_z) + b_z, 1),[N,M,L,2*d])
+        z = tf.tanh(z_part1 + z_part2 ,name='z')
+        f_part1 = tf.reshape(tf.matmul(tf.reshape(S,[-1,2*d]),W1_f) ,[N,M,L,2*d],name='f_part1')
+        f_part2 = tf.reshape(tf.expand_dims(tf.matmul(tf.reshape(inputs,[-1,2*d]), W2_f) + b_f, 1,name='f_part2'),[N,M,L,2*d])
+        f = tf.sigmoid(f_part1 + f_part2,name='f')
+        input_hat = tf.multiply(f, inputs) + tf.multiply( (1 - f),z)
+    return input_hat
